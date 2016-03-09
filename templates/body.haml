@@ -1,0 +1,60 @@
+.container-fluid
+  %h1 Martingala
+  .row
+    .col-xs-6.col-md-3
+      .form-group
+        %label(for="secret") Secret
+        %input#secret.form-control(placeholder="Secret" type="text")
+
+    .col-xs-6.col-md-3
+      .form-group
+        %label(for="multiplier") Multiplicador
+        %input#multiplier.form-control(placeholder="Multiplicador" value="1.5" type="number" min="0" step="0.01")
+  .row
+    .col-xs-6.col-md-3
+      .form-group
+        %label(for="stop-loss") Balance mínimo
+        %input#stop-loss.form-control(type="number")
+    .col-xs-6.col-md-3
+      .form-group
+        %label(for="streak-reset") Reseteo de racha
+        %input#streak-reset.form-control(type="number" min="1")
+  .row
+    .col-xs-6.col-md-3
+      .form-group
+        %label(for="initial-bet") Apuesta mínima
+        %input#initial-bet.form-control(type="number" min="100" value="100")
+    .col-xs-6.col-md-3
+      .form-group
+        %label(for="min-rolls") Mínima cantidad de tiros
+        %input#min-rolls.form-control(type="number" min="9")
+  .row
+    .col-xs-6.col-md-3
+      .form-group
+        %button#play.btn.btn-default(type="button")
+          %i.glyphicon.glyphicon-play
+        %button#stop.btn.btn-default(type="button")
+          %i.glyphicon.glyphicon-stop
+    .col-xs-6.col-md-3
+      .form-group
+        %label(for="total-bets") Apostado hasta ahora
+        %input#total-bets.form-control(type="number" step="0.00000001")
+  .row
+    .col-xs-12
+      Próxima apuesta:
+      %span#next-bet
+      BTC
+  .row
+    .col-xs-12
+      Balance:
+      %span#current-balance
+      BTC -
+      Tiros:
+      %span#max-rolls
+      \(
+      %span#plus-one>
+      con
+      %span#plus-one-at
+      BTC)
+  %br
+  %pre#stdout.pre-scrollable.small
