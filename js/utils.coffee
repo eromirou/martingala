@@ -18,7 +18,13 @@ String::rjust = (width, padding) ->
     @
 
 Number::toBitcoin = -> @ / 100000000
-Number::toSatoshis = -> @ * 100000000
+Number::toSatoshis = -> parseInt(@ * 100000000)
+Number::truncate = (precision) ->
+  str = @toString()
+  sepIdx = str.indexOf('.')
+  return @valueOf() if sepIdx is -1
+  parseFloat(str.slice(0, sepIdx + 1 + precision))
+
 Function::accessor = (prop, desc) ->
   Object.defineProperty @prototype, prop, desc
 
