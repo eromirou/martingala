@@ -214,10 +214,14 @@ window.PrimediceClient = class PrimediceClient extends BaseClient
 
   call: (method, params = { }, verb = 'get') ->
     verb = verb.toUpperCase()
+    proxy = if location.protocol is 'https:'
+      "https://martingala-proxy.herokuapp.com"
+    else
+      "http://localhost:5000"
+
     jqXHR = $.ajax(
       type: verb
-      #url: "https://martingala-proxy.herokuapp.com/primedice/#{method}"
-      url: "http://localhost:5000/primedice/#{method}"
+      url: "#{proxy}/primedice/#{method}"
       data: $.extend({ access_token: @secret }, params)
     )
     r(jqXHR)
