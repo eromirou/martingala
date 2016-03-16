@@ -54,7 +54,7 @@ window.Martingala = class Martingala extends Evented
     if @stopLoss and (@client._balance - @bet) < @_stopLoss
       return
 
-    if @_bet > @client._balance
+    if @bet > @client._balance
       puts "ERROR! - Insufficient funds!"
       return
 
@@ -174,7 +174,7 @@ window.SatoshiDiceClient = class SatoshiDiceClient extends BaseClient
     'lost'
 
   lastGameProfit: ->
-    @lastGame?.bet.profit
+    @lastGame?.bet.profitInSatoshis
 
   call: (method, params = { }) ->
     jqXHR = $.ajax(
