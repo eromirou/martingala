@@ -4,29 +4,37 @@ class Evented
   one: (eventName, callback) -> $(@).one(eventName, callback.bind(@))
 
 window.Martingala = class Martingala extends Evented
-  constructor: (@secret, @multiplier = 2, @initialBet = SatoshiClient::MINBET, @streakReset = 1, @stopLoss, @minRolls) ->
-    @initClient()
-    @multiplier = +@multiplier
-    @initialBet = +@initialBet
-    @streakReset = +@streakReset
-    @stopLoss = +@stopLoss
-    @minRolls = +@minRolls
-    @calcOdds()
+  @accessor 'multiplier',
+    set: (v) -> @_multiplier = _.max [ +v, 1.0102 ]
+    get: -> @_multiplier
 
-  initClient: ->
-    @client = new SatoshiClient(@secret)
+  @accessor 'initialBet',
+    set: (v) -> @_initialBet = (+v).toSatoshis()
+    get: -> @_initialBet?.toBitcoin()
+
+  @accessor 'stopLoss',
+    set: (v) -> @_stopLoss = (+v).toSatoshis()
+    get: -> @_stopLoss?.toBitcoin()
+
+  constructor: (multiplier, initialBet, streakReset, stopLoss, minRolls, @client) ->
+    @multiplier = multiplier || 2
+    @initialBet = +initialBet || (100).toBitcoin()
+    @streakReset = +streakReset || 1
+    @stopLoss = stopLoss
+    @minRolls = +minRolls
+    @updateOdds()
     @client.one 'balanceUpdate', @recalcInitialBet.bind(@)
+    @client.init()
 
-  calcOdds: ->
-    keep = 1 - @client.HOUSEEDGE / 100
-    @rollBelow = Math.floor(@client.MAXROLL / @multiplier * keep)
-    @payout = +(@client.MAXROLL / @rollBelow * keep).toFixed(5)
+  updateOdds: ->
+    [ @rollBelow, @multiplier ] = @client.calcOdds(@multiplier)
+    @emit('oddsUpdated')
 
   recalcInitialBet: ->
     if @minRolls
       minRolls = _.min([ @maxRolls(@client.MINBET)[0], @minRolls ])
-      @initialBet = @client.MINBET
-      @initialBet += 1 until @maxRolls(@initialBet + 1)[0] < minRolls
+      @_initialBet = @client.MINBET
+      @_initialBet += 1 until @maxRolls(@_initialBet + 1)[0] < minRolls
     @emit('initialBetRecalc', @initialBet)
     @initialBet
 
@@ -36,15 +44,22 @@ window.Martingala = class Martingala extends Evented
   run: (@totalBets = 0) ->
     @running = true
     @symmetricStreak = 0
+    @streak ||= 0
     @client.startRound().then(@placeBet.bind(@))
 
   stop: -> @running = false
 
   placeBet: ->
     @calculateBet()
-    if @stopLoss
-      return if (@client.balance - @bet) < @stopLoss
+    if @stopLoss and (@client._balance - @bet) < @_stopLoss
+      return
+
+    if @_bet > @client._balance
+      puts "ERROR! - Insufficient funds!"
+      return
+
     @client.placebet(@bet, @rollBelow)
+      .then(@updateStreakCount.bind(@))
       .then(=>
         @totalBets += @bet
         @emit('betPlaced', @client.lastGame.bet)
@@ -53,17 +68,23 @@ window.Martingala = class Martingala extends Evented
         @placeBet()
       ).catch((error) =>
         puts "ERROR! - #{JSON.stringify error}"
-        if @client.lastGameFailed()
-          return if @client.lastGame.failcode == 19
         @client.startRound().then(@placeBet.bind(@))
       )
 
   calculateBet: ->
     @bet = _.max([ @neededBet(@totalBets), @client.MINBET ])
 
-  neededBet: (amount, minBet = @initialBet) ->
+  neededBet: (amount, minBet = @_initialBet) ->
     #_.max([ Math.ceil( ( amount + minBet ) / ( @multiplier - 1 ) ), minBet ])
-    _.max([ Math.ceil( ( amount ) / ( @multiplier - 1 ) ), minBet ])
+    _.max([ Math.ceil( amount / ( @multiplier - 1 ) ), minBet ])
+
+  updateStreakCount: ->
+    if @client.lastGameWon()
+      @streak = 0 if @streak < 0
+      @streak += 1
+    else
+      @streak = 0 if @streak > 0
+      @streak -= 1
 
   prepareNextRound: ->
     if @client.lastGameWon()
@@ -73,14 +94,13 @@ window.Martingala = class Martingala extends Evented
       else
         @symmetricStreak -= 1 if @symmetricStreak > 0
         bets = @totalBets - @bet
-        #lastBet = Math.floor(( bets + @initialBet) / @multiplier)
-        lastBet = Math.floor(( bets ) / @multiplier)
-        _.max([ bets - _.max([ lastBet, @client.MINBET, @initialBet ]), 0 ])
+        lastBet = Math.floor(bets / @multiplier)
+        _.max([ bets - _.max([ lastBet, @client.MINBET, @_initialBet ]), 0 ])
     else
       @symmetricStreak += 1
     @emit('nextRoundPrepared')
 
-  maxRolls: (minBet, balance = @client.balance) ->
+  maxRolls: (minBet, balance = @client._balance) ->
     count = 0
     total = 0
     loop
@@ -93,22 +113,42 @@ window.Martingala = class Martingala extends Evented
 class BaseClient extends Evented
   MINBET: 100
 
+  @accessor 'balance',
+    set: (v) -> @_balance = (+v).toSatoshis()
+    get: -> @_balance?.toBitcoin()
+
   constructor: (@secret) ->
     @balance = 0
-    if @secret
-      @updateBalance().then => setInterval(@updateBalance.bind(@), 5000)
+
+  init: ->
+    @updateBalance().then => setInterval(@updateBalance.bind(@), 5000)
 
   updateBalance: (force) ->
     diff = Date.now() - ( @lastBalanceAt || 0 )
     return r(@balance) unless force || diff >= 3000
     @getBalance().then(@setBalance.bind(@))
 
-  setBalance: (@balance) ->
+  setBalance: (@_balance) ->
     @lastBalanceAt = Date.now()
     @emit('balanceUpdate', @balance)
-    @balance
+    @_balance
 
-window.SatoshiClient = class SatoshiClient extends BaseClient
+  lastGameFailed: ->
+    @lastGameStatus() == 'failed'
+
+  lastGameWon: ->
+    @lastGameStatus() == 'won'
+
+  lastGameLost: ->
+    @lastGameStatus() == 'lost'
+
+  calcOdds: (multiplier) ->
+    kept = 1 - @HOUSEEDGE / 100
+    rollBelow = Math.floor(@MAXROLL / multiplier * kept)
+    payout = +(@MAXROLL / rollBelow * kept).toFixed(5)
+    [ rollBelow, payout ]
+
+window.SatoshiDiceClient = class SatoshiDiceClient extends BaseClient
   HOUSEEDGE: 1.9
   MAXROLL: 65536.0
 
@@ -133,21 +173,51 @@ window.SatoshiClient = class SatoshiClient extends BaseClient
     return 'won' if @lastGame['bet']['result'] == 'win'
     'lost'
 
-  lastGameFailed: ->
-    @lastGameStatus() == 'failed'
-
-  lastGameWon: ->
-    @lastGameStatus() == 'won'
-
-  lastGameLost: ->
-    @lastGameStatus() == 'lost'
-
-  streak: ->
-    @lastGame['bet']['streak']
+  lastGameProfit: ->
+    @lastGame?.bet.profit
 
   call: (method, params = { }) ->
     jqXHR = $.ajax(
       url: "https://session.satoshidice.com/userapi/#{method}"
       data: $.extend({ secret: @secret }, params)
       dataType: 'jsonp')
+    r(jqXHR)
+
+window.PrimediceClient = class PrimediceClient extends BaseClient
+  HOUSEEDGE: 1
+  MAXROLL: 100.0
+
+  getSelf: -> @call('users/1')
+
+  getBalance: -> @getSelf().then (res) -> res.user.balance
+  startRound: -> r()
+
+  placebet: (bet, rollBelow) ->
+    @call('bet', { amount: bet, target: rollBelow, condition: '<' }, 'post')
+      .then((@lastGame) =>
+        return rej(@lastGame) if @lastGameFailed()
+        @setBalance(@lastGame.user.balance)
+        @lastGame
+      )
+
+  lastGameStatus: ->
+    if @lastGame.bet.win then 'won' else 'lost'
+
+  lastGameProfit: ->
+    @lastGame.bet.profit
+
+  calcOdds: (multiplier) ->
+    kept = 1 - @HOUSEEDGE / 100
+    rollBelow = (@MAXROLL / multiplier * kept).truncate(2)
+    payout = (@MAXROLL / rollBelow * kept).truncate(5)
+    [ rollBelow, payout ]
+
+  call: (method, params = { }, verb = 'get') ->
+    verb = verb.toUpperCase()
+    jqXHR = $.ajax(
+      type: verb
+      #url: "https://martingala-proxy.herokuapp.com/primedice/#{method}"
+      url: "http://localhost:5000/primedice/#{method}"
+      data: $.extend({ access_token: @secret }, params)
+    )
     r(jqXHR)
