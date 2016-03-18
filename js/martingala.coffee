@@ -23,7 +23,7 @@ window.Martingala = class Martingala extends Evented
     @stopLoss = stopLoss
     @minRolls = +minRolls
     @updateOdds()
-    @client.one 'balanceUpdate', @recalcInitialBet.bind(@)
+    @client.one 'balanceUpdated', @recalcInitialBet.bind(@)
     @client.init()
 
   updateOdds: ->
@@ -35,7 +35,7 @@ window.Martingala = class Martingala extends Evented
       minRolls = _.min([ @maxRolls(@client.MINBET)[0], @minRolls ])
       @_initialBet = @client.MINBET
       @_initialBet += 1 until @maxRolls(@_initialBet + 1)[0] < minRolls
-    @emit('initialBetRecalc', @initialBet)
+    @emit('betRecalculated', @initialBet)
     @initialBet
 
   inspect: ->
@@ -43,7 +43,7 @@ window.Martingala = class Martingala extends Evented
 
   run: (@totalBets = 0) ->
     @running = true
-    @symmetricStreak = 0
+    @symmetricStreak ||= 0
     @streak ||= 0
     @client.startRound().then(@placeBet.bind(@))
 
@@ -110,7 +110,7 @@ window.Martingala = class Martingala extends Evented
       count += 1
     [ count, total ]
 
-class BaseClient extends Evented
+window.BaseClient = class BaseClient extends Evented
   MINBET: 100
 
   @accessor 'balance',
@@ -121,16 +121,26 @@ class BaseClient extends Evented
     @balance = 0
 
   init: ->
-    @updateBalance().then => setInterval(@updateBalance.bind(@), 5000)
+    @updateProfile().then => setInterval(@updateBalance.bind(@), 5000)
+
+  getProfile: ->
+    rej(new Error("Clients should implement #getProfile method. Should return an object like { username: 'username', balance: balanceInSatoshis }"))
 
   updateBalance: (force) ->
     diff = Date.now() - ( @lastBalanceAt || 0 )
     return r(@balance) unless force || diff >= 3000
-    @getBalance().then(@setBalance.bind(@))
+    @getProfile().then (p) => @setBalance(p.balance)
+
+  updateProfile: ->
+    @getProfile().then (p) =>
+      @setBalance(p.balance)
+      @username = p.username
+      @emit('profileUpdated', p)
+      p
 
   setBalance: (@_balance) ->
     @lastBalanceAt = Date.now()
-    @emit('balanceUpdate', @balance)
+    @emit('balanceUpdated', @balance)
     @_balance
 
   lastGameFailed: ->
@@ -148,12 +158,13 @@ class BaseClient extends Evented
     payout = +(@MAXROLL / rollBelow * kept).toFixed(5)
     [ rollBelow, payout ]
 
-window.SatoshiDiceClient = class SatoshiDiceClient extends BaseClient
+window.SatoshiDice = class SatoshiDice extends BaseClient
   HOUSEEDGE: 1.9
   MAXROLL: 65536.0
 
-  getBalance: ->
-    @call('userbalance').then (res) -> res.balanceInSatoshis
+  getProfile: ->
+    @call('userbalance').then (res) ->
+      { username: res.nick, balance: res.balanceInSatoshis }
 
   startRound: ->
     @call('startround').then((@round) =>)
@@ -183,13 +194,14 @@ window.SatoshiDiceClient = class SatoshiDiceClient extends BaseClient
       dataType: 'jsonp')
     r(jqXHR)
 
-window.PrimediceClient = class PrimediceClient extends BaseClient
+window.Primedice = class Primedice extends BaseClient
   HOUSEEDGE: 1
   MAXROLL: 100.0
 
-  getSelf: -> @call('users/1')
+  getProfile: ->
+    @call('users/1').then (res) ->
+      { username: res.user.username, balance: res.user.balance }
 
-  getBalance: -> @getSelf().then (res) -> res.user.balance
   startRound: -> r()
 
   placebet: (bet, rollBelow) ->
