@@ -1,5 +1,9 @@
 .container-fluid
-  %h1 Martingala
+  %h1
+    Martingala -
+    %span#casino
+    \- User:
+    %span#username
   .row
     .col-xs-6.col-md-3.form-group
       %label(for="secret") Secret
@@ -30,8 +34,8 @@
         .input-group-addon BTC
 
     .col-xs-6.col-md-3.form-group
-      %label(for="min-rolls") Mínima cantidad de tiros
-      %input#min-rolls.form-control(placeholder="Mínima cantidad de tiros" value="9" type="number" min="9")
+      %label(for="min-rolls") Cantidad de tiros
+      %input#min-rolls.form-control(placeholder="Cantidad de tiros" value="9" type="number" min="9")
 
   .row
     .col-xs-6.col-md-3.form-group

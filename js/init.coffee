@@ -15,28 +15,33 @@ $ ->
     $("##{k}").val()
 
   clientClass = if location.params.client == 'primedice'
-    PrimediceClient
+    Primedice
   else
-    SatoshiDiceClient
+    SatoshiDice
 
   client = new clientClass(location.params.secret)
   args.push(client)
 
-  client.on 'balanceUpdate', ->
+  client.on 'balanceUpdated', ->
     $("#current-balance").text(client.balance.toFixed(8))
 
-  client.one 'balanceUpdate', ->
+  client.on 'profileUpdated', ->
     $("#multiplier").change()
+    $("#casino").text(clientClass.name)
+    $("#username").text(client.username)
 
   window.martingala = new Martingala(args...)
 
-  martingala.on 'initialBetRecalc', ->
-    if @stopLoss
-      @stopLoss += 0.005 while @client.balance >= @stopLoss + 0.015
+  updateNextBet = ->
+    nextBet = martingala.neededBet(martingala.totalBets)
+    $("#next-bet").text(nextBet.toBitcoin().toFixed(8))
+
+  martingala.on 'betRecalculated', ->
+    if @_stopLoss
+      @_stopLoss += (0.001).toSatoshis() while @client._balance >= @_stopLoss + (0.011).toSatoshis()
       $("#stop-loss").val(@stopLoss)
     $("#initial-bet").val(@initialBet.toFixed(8))
-    nextBet = @neededBet(@totalBets)
-    $("#next-bet").text(nextBet.toBitcoin().toFixed(8))
+    updateNextBet()
 
     minBet = if martingala.minRolls then client.MINBET else martingala.initialBet
     [ canAfford, plusOneAt ] = martingala.maxRolls(minBet)
@@ -54,7 +59,7 @@ $ ->
     puts "#{message.ljust(8)} #{profit} BTC - Apuesta: #{@bet.toBitcoin().toFixed(8)} BTC - #{moment().format("YYYY/MM/DD HH:mm:ss")}"
 
   martingala.on 'nextRoundPrepared', ->
-    $("#total-bets").val(@totalBets.toBitcoin().toFixed(8)).change()
+    $("#total-bets").val(@totalBets.toBitcoin().toFixed(8))
     nextBet = @neededBet(@totalBets)
     $("#next-bet").text(nextBet.toBitcoin().toFixed(8))
 
@@ -63,7 +68,7 @@ $ ->
 
   $("#total-bets").change(->
     martingala.totalBets = (+$(@).val()).toSatoshis()
-    martingala.recalcInitialBet()
+    updateNextBet()
   )
 
   $("#secret").val(client.secret).change(->
